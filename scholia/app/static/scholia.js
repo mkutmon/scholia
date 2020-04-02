@@ -1,3 +1,16 @@
+// https://stackoverflow.com/questions/6020714
+function escapeHTML(html) {
+    if (typeof html !== "undefined") {
+	return html
+	    .replace(/&/g,'&amp;')
+	    .replace(/</g,'&lt;')
+	    .replace(/>/g,'&gt;');
+    }
+    else {
+	return "";
+    }
+}
+
 // http://stackoverflow.com/questions/1026069/
 function capitalizeFirstLetter(string) {
     return string.charAt(0).toUpperCase() + string.slice(1);
@@ -41,7 +54,6 @@ function convertDataTableData(data, columns, linkPrefixes={}) {
 		convertedRow[key] = '<a href="' +
 		    data[i][key + 'Url'] +
 		    '">' + data[i][key] + '</a>';
-		console.log(convertedRow[key]);
 	    } else if (key.substr(-3) == 'Url') {
 		// pass
 

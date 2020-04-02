@@ -8,7 +8,7 @@
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='jquery.dataTables.min.css') }}">
 <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/scholia.css') }}">
-
+{% include "favicon.html" %}
 
 {% endblock %}
 
@@ -36,28 +36,50 @@
 	 }
 	 $("#h1").append(' (<a href="https://www.wikidata.org/wiki/{{ q }}">{{ q }}</a>)');
 	 
+	 var detailsList = Array();
 	 try {
 	     var orcid = item.claims.P496[0].mainsnak.datavalue.value;
-	     $( '#details' ).append( '<div><a href="https://orcid.org/"><img alt="' +
-				     'ORCID logo" src="{{ url_for('static', filename='images/orcid_16x16.gif') }}"' +
-				     'width="16" height="16" hspace="4" /></a> <a href="https://orcid.org/' +
-				     orcid + '">https://orcid.org/' + orcid + '</a></div>')
+	     detailsList.push( '<a href="https://orcid.org/"><img alt="' +
+			       'ORCID logo" src="{{ url_for('static', filename='images/orcid_16x16.gif') }}"' +
+			       'width="16" height="16" hspace="4" /></a> <a href="https://orcid.org/' +
+			       encodeURI( orcid ) + '">https://orcid.org/' + escapeHTML( orcid ) + '</a>');
 	 }
 	 catch(e) {}
-	 
+
 	 try {
 	     var doi = item.claims.P356[0].mainsnak.datavalue.value;
-	     $( '#details' ).append( 'DOI: <a href="https://doi.org/' + doi + '">' + doi + '</a>. ');
+	     detailsList.push( 'DOI: <a href="https://doi.org/' + encodeURI( doi ) + '">' + escapeHTML( doi ) + '</a> ');
 	 }
 	 catch(e) {}
 	 
 	 try {
 	     var fullTextUrl = item.claims.P953[0].mainsnak.datavalue.value;
-	     $( '#details' ).append( '<a href="' + fullTextUrl + '">' + fullTextUrl + '</a>. ');
+	     detailsList.push( '<a href="' + fullTextUrl + '">' + fullTextUrl + '</a> ');
+	 }
+	 catch(e) {}
+
+	 try {
+	     var twitterAccount = item.claims.P2002[0].mainsnak.datavalue.value;
+	     detailsList.push( '<img alt="Twitter t icon" src="' +
+			       'https://upload.wikimedia.org/wikipedia/commons/8/8b/Twitter_logo_initial.svg' +
+			       '" width="16" height="16" hspace="4" /> <a href="https://twitter.com/' +
+			       encodeURI( twitterAccount ) + '">@' + escapeHTML( twitterAccount ) + '</a> ');
+	 }
+	 catch(e) { }
+
+	 try {
+	     var hashtag = item.claims.P2572[0].mainsnak.datavalue.value;
+	     detailsList.push( '<a href="https://tools.wmflabs.org/hashtags-hub/' +
+			       encodeURI( hashtag ) + '">#' + escapeHTML( hashtag ) + '</a> ');
+	 }
+	 catch(e) {}
+
+	 try {
+	     $( '#details' ).append( detailsList.join( " | " ) );
 	 }
 	 catch(e) {}
 	 
-
+	 
 	 /* English Wikipedia */
 	 if ('enwiki' in item.sitelinks) {
 	     var title = item.sitelinks.enwiki.title;
@@ -136,6 +158,8 @@
     UNION
     { wd:{{ q }} wdt:P235 [] . BIND("chemical" AS ?aspect) }
     UNION
+    { wd:{{ q }} ^wdt:P31/wdt:P235 [] . BIND("chemical-class" AS ?aspect) }
+    UNION
     { wd:{{ q }} wdt:P644 [] . BIND("gene" AS ?aspect) }
     UNION
     { wd:{{ q }} wdt:P50 | wdt:P2093 [] . BIND("work" AS ?aspect) }
@@ -199,6 +223,27 @@
      });
  }
 
+ $('#searchterm').keyup(function( e ) {
+      var q = $('#searchterm').val();
+      $.getJSON("https://www.wikidata.org/w/api.php?callback=?", {
+          search: q,
+          action: "wbsearchentities",
+          language: "en",
+          uselang: "en",
+          format: "json",
+          strictlanguage: true,
+        },
+        function(data) {
+          $("#searchresult").empty();
+          $.each(data.search, function(i, item) {
+            $("#searchresult")
+              .append("<div><a href='{{ url_for('app.index') }}" + item.title + "'>" + 
+                escapeHTML(item.label) + 
+                "</a> - " + escapeHTML(item.description) + "</div>");
+        });
+      });
+    });
+
 </script>
 
 {% endblock %}
@@ -206,7 +251,7 @@
 {% block navbar %}
 <div class="navbar navbar-static-top">
     <ul class="nav nav-pills">
-	<li role="presentation"><a href="{{ url_for('app.index') }}">Scholia</a></li>
+	<li role="presentation"><a href="{{ url_for('app.index') }}"><img src="{{ url_for('static', filename='images/scholia_wordmark.svg') }}" width="112px" height="24px" alt="Scholia"></a></li>
 	<li role="presentation"><a href="{{ url_for('app.show_author_empty') }}">Author</a></li>
 	<li role="presentation">
 	    <div class="dropdown">
@@ -314,7 +359,19 @@
 		</ul>
 	    </div>
 	</li>
+    
     </ul>
+    {% block nav_search %}
+    <div class='nav nav-search'>
+	    <div class="input-group">
+        <input type="text" class="form-control"
+            placeholder="Search..." id="searchterm"/>
+
+        </div>
+
+        <div id="searchresult"></div>
+    </div>
+    {% endblock %}
 </div>
 {% endblock %}
 
@@ -340,6 +397,10 @@
     |
     Report technical problems at Scholia's
     <a href="https://github.com/fnielsen/scholia/issues">Issues</a> GitHub page.
+    <hr>
   </div>
 {% endblock %}
 
+<script type="text/javascript">
+    
+</script>

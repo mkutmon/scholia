@@ -6,14 +6,17 @@
 
 <script type="text/javascript">
  recentlyPublishedWorksSparql = `
-SELECT ?date ?work ?workLabel ?topics
+SELECT ?date ?work ?workLabel 
+  ?topicsUrl ?topics 
 WITH {
   SELECT DISTINCT ?work WHERE {
     ?work wdt:P921 / (wdt:P361+ | wdt:P1269+ | (wdt:P31* / wdt:P279*) ) wd:{{ q }} .
   }
 } AS %works
 WITH {
-  SELECT (MAX(?dates) as ?datetime) ?work (GROUP_CONCAT(DISTINCT ?topic_label; separator=" // ") AS ?topics) WHERE {
+  SELECT (MAX(?dates) as ?datetime) ?work (GROUP_CONCAT(DISTINCT ?topic_label; separator=" // ") AS ?topics) 
+                                    (CONCAT("../topics/", GROUP_CONCAT(DISTINCT SUBSTR(STR(?topic), 32); separator=",")) AS ?topicsUrl) 
+  WHERE {
     INCLUDE %works
     ?work wdt:P921 ?topic . 
     OPTIONAL { ?work wdt:P577 ?dates . }
@@ -30,9 +33,44 @@ WHERE {
     
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en,da,de,es,fr,jp,nl,no,ru,sv,zh". }
 }
+GROUP BY ?date ?work ?workLabel ?topicsUrl ?topics
 ORDER BY DESC(?date)
+LIMIT 500`
+
+ earliestPublishedWorksSparql = `
+SELECT ?date ?work ?workLabel ?topicsUrl ?topics 
+WITH {
+  SELECT DISTINCT ?work WHERE {
+    ?work wdt:P921 / (wdt:P361+ | wdt:P1269+ | (wdt:P31* / wdt:P279*) ) wd:{{ q }} .
+  }
+} AS %works
+WITH {
+  SELECT (MAX(?dates) as ?datetime) ?work (GROUP_CONCAT(DISTINCT ?topic_label; separator=" // ") AS ?topics) 
+                                    (CONCAT("../topics/", GROUP_CONCAT(DISTINCT SUBSTR(STR(?topic), 32); separator=",")) AS ?topicsUrl) 
+                                    WHERE {
+    INCLUDE %works
+    ?work wdt:P921 ?topic . 
+    ?work wdt:P577 ?dates . 
+	FILTER (!isBLANK(?dates)) .
+    ?topic rdfs:label ?topic_label .  FILTER (lang(?topic_label) = 'en')
+  }
+  GROUP BY ?work
+} AS %result
+WHERE {
+  INCLUDE %result
+
+  # There is a problem with BC dates
+  # BIND(xsd:date(?datetime) AS ?date)
+  BIND(REPLACE(STR(?datetime), 'T.*', '') AS ?date)
+    
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "en,da,de,es,fr,jp,nl,no,ru,sv,zh". }
+}
+GROUP BY ?date ?work ?workLabel ?topicsUrl ?topics
+ORDER BY ASC(?date)
 LIMIT 500
 `
+
+
  authorsSparql = `
 #defaultView:Table
 SELECT ?count ?author ?authorLabel (COALESCE(?orcid_, CONCAT("orcid-search/quick-search/?searchQuery=", ?authorLabel)) AS ?orcid) 
@@ -53,7 +91,7 @@ WHERE {
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en,da,de,es,fr,jp,nl,no,ru,sv,zh" . } 
 }
 ORDER BY DESC(?count)
-  `
+`
 
  topicsSparql = `
 #defaultView:Table
@@ -77,7 +115,7 @@ WHERE {
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en,da,de,es,fr,jp,nl,no,ru,sv,zh" . } 
 }
 ORDER BY DESC(?count)
-  `
+`
 
   authorScoreSparql = `
 SELECT ?score ?author ?authorLabel ?example_work ?example_workLabel
@@ -136,7 +174,7 @@ WHERE {
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en,da,de,es,fr,jp,nl,no,ru,sv,zh" . } 
 }
 ORDER BY DESC(?count)
-  `
+`
 
  topCitedSparql = `
 #defaultView:Table
@@ -185,16 +223,86 @@ ORDER BY DESC(?number_of_citations)
 LIMIT 200
 `
 
+  authorAwardsSparql = `
+SELECT ?count ?award ?awardLabel ?recipients ?recipientsUrl
+WITH {
+  SELECT (COUNT(?researcher) AS ?count) ?award 
+  (GROUP_CONCAT(DISTINCT ?researcher_label; separator=", ") AS ?recipients) 
+  (CONCAT("../authors/", GROUP_CONCAT(DISTINCT SUBSTR(STR(?researcher), 32); separator=",")) AS ?recipientsUrl)
+  WHERE {
+    { 
+      SELECT DISTINCT ?researcher ?award WHERE {
+        hint:Query hint:optimizer "None" .
+        ?work wdt:P921 wd:{{ q }} .
+        ?work wdt:P50 ?researcher .
+        ?researcher wdt:P166 ?award .
+      } 
+      LIMIT 100
+    }
+    ?researcher rdfs:label ?researcher_label . FILTER (LANG(?researcher_label) = 'en')
+  }
+  GROUP BY ?award 
+} AS %result
+WHERE {
+  INCLUDE %result
+    ?award rdfs:label ?awardLabel . FILTER (LANG(?awardLabel) = 'en')
+}
+GROUP BY ?count ?award ?awardLabel ?recipients ?recipientsUrl
+ORDER BY DESC(?count)
+`
+
 
  $(document).ready(function() {
      sparqlToDataTable(recentlyPublishedWorksSparql,
-		       "#recently-published-works");
-     sparqlToDataTable(authorsSparql, "#authors");
-     sparqlToDataTable(topicsSparql, "#topics");
-     sparqlToDataTable(authorScoreSparql, "#author-score");
-     sparqlToDataTable(venuesSparql, "#venues");
-     sparqlToDataTable(topCitedSparql, "#topCited");
-     sparqlToDataTable(mostCitedAuthorsSparql, "#most-cited-authors");
+               "#recently-published-works",{
+	 linkPrefixes:{
+	     "work": "../work/",
+	     }
+     });     
+     sparqlToDataTable(earliestPublishedWorksSparql,
+		       "#earliest-published-works",{
+	 linkPrefixes:{
+	     "work": "../work/",
+    	 }
+     });
+     sparqlToDataTable(authorsSparql, "#authors",{
+	 linkPrefixes:{
+	     "author": "../author/",
+    	 }
+     });
+     sparqlToDataTable(topicsSparql, "#topics",{
+	 linkPrefixes:{
+	     "topic": "../topic/",
+	     "example_work": "../work/",
+    	 }
+     });
+     sparqlToDataTable(authorScoreSparql, "#author-score",{
+	 linkPrefixes:{
+	     "author": "../author/",
+	     "example_work": "../work/",
+    	 }
+     });
+     sparqlToDataTable(venuesSparql, "#venues",{
+	 linkPrefixes:{
+	     "venue": "../venue/",
+    	 }
+     });
+     sparqlToDataTable(topCitedSparql, "#topCited",{
+	 linkPrefixes:{
+	     "cited_work": "../work/",
+    	 }
+     });
+     sparqlToDataTable(mostCitedAuthorsSparql, "#most-cited-authors",{
+	 linkPrefixes:{
+	     "author": "../author/",
+	     "cited_work_example": "../work/",
+    	 }
+     });
+     sparqlToDataTable(authorAwardsSparql, "#author-awards",{
+	 linkPrefixes:{
+	     "award": "../award/",
+    	 }
+     });
  });
 </script>
 
@@ -223,6 +331,11 @@ LIMIT 200
 </div>
 
 
+<h2 id="Earliest published works on the topic">Earliest published works on the topic</h2>
+
+<table class="table table-hover" id="earliest-published-works"></table>
+
+
 <h2 id="Authors">Authors</h2>
 
 
@@ -232,10 +345,10 @@ LIMIT 200
 
 <h3 id="Co-author graph">Co-author graph</h3>
 
-The 25 most prolific authors and their co-authors.
+The 25 most prolific authors and some of their key co-authors.
 
 <div class="embed-responsive embed-responsive-4by3">
-    <iframe class="embed-responsive-item" src="https://query.wikidata.org/embed.html#%23defaultView%3AGraph%0ASELECT%20%3Fauthor1%20%3Fauthor1Label%20%3Frgb%20%3Fauthor2%20%3Fauthor2Label%0AWITH%20%7B%0A%20%20%23%20Find%20works%20with%20the%20topic%0A%20%20SELECT%20%3Fwork%20WHERE%20%7B%0A%20%20%20%20%3Fwork%20wdt%3AP921%20%2F%20%28wdt%3AP31%2a%20%2F%20wdt%3AP279%2a%20%7C%20wdt%3AP361%2B%20%7C%20wdt%3AP1269%2B%29%20wd%3A{{ q }}%20.%0A%20%20%7D%0A%7D%20AS%20%25works%0AWITH%20%7B%0A%20%20%23%20Limit%20the%20number%20of%20authors%0A%20%20SELECT%20%28COUNT%28%3Fwork%29%20AS%20%3Fcount%29%20%3Fauthor1%20WHERE%20%7B%0A%20%20%20%20INCLUDE%20%25works%0A%20%20%20%20%3Fwork%20wdt%3AP50%20%3Fauthor1%20.%0A%20%20%7D%0A%20%20GROUP%20BY%20%3Fauthor1%0A%20%20ORDER%20BY%20DESC%28%3Fcount%29%0A%20%20LIMIT%2025%0A%7D%20AS%20%25authors%0AWHERE%20%7B%0A%20%20INCLUDE%20%25works%0A%20%20INCLUDE%20%25authors%0A%20%20%3Fwork%20wdt%3AP50%20%3Fauthor1%20%2C%20%3Fauthor2%20.%0A%20%20FILTER%20%28%3Fauthor1%20%21%3D%20%3Fauthor2%29%20%0A%20%20OPTIONAL%20%7B%20%3Fauthor1%20wdt%3AP21%20%3Fgender1%20.%20%7D%0A%20%20BIND%28%20IF%28%3Fgender1%20%3D%20wd%3AQ6581097%2C%20%223182BD%22%2C%20%22E6550D%22%29%20AS%20%3Frgb%29%0A%20%20SERVICE%20wikibase%3Alabel%20%7B%0A%20%20%20%20bd%3AserviceParam%20wikibase%3Alanguage%20%22en%2Cfr%2Cde%2Cru%2Ces%2Czh%2Cjp%22.%0A%20%20%7D%0A%7D%0A"></iframe>
+    <iframe class="embed-responsive-item" src="https://query.wikidata.org/embed.html#%23defaultView%3AGraph%0ASELECT%20%3Fauthor1%20%3Fauthor1Label%20%3Frgb%20%3Fauthor2%20%3Fauthor2Label%0AWITH%20%7B%0A%20%20%23%20Find%20works%20with%20the%20topic%0A%20%20SELECT%20%3Fwork%20WHERE%20%7B%0A%20%20%20%20%3Fwork%20wdt%3AP921%20%2F%20%28wdt%3AP31%2a%20%2F%20wdt%3AP279%2a%20%7C%20wdt%3AP361%2B%20%7C%20wdt%3AP1269%2B%29%20wd%3A{{ q }}%20.%0A%20%20%7D%0A%7D%20AS%20%25works%0AWITH%20%7B%0A%20%20%23%20Limit%20the%20number%20of%20authors%0A%20%20SELECT%20%28COUNT%28%3Fwork%29%20AS%20%3Fcount1%29%20%3Fauthor1%20WHERE%20%7B%0A%20%20%20%20INCLUDE%20%25works%0A%20%20%20%20%3Fwork%20wdt%3AP50%20%3Fauthor1%20.%0A%20%20%7D%0A%20%20GROUP%20BY%20%3Fauthor1%0A%20%20ORDER%20BY%20DESC%28%3Fcount1%29%0A%20%20LIMIT%2025%0A%7D%20AS%20%25authors1%0AWITH%20%7B%0A%20%20%23%20Limit%20the%20number%20of%20coauthors%0A%20%20SELECT%20DISTINCT%20%3Fauthor2%20%3Fauthor1%20%20%28COUNT%28%3Fwork%29%20AS%20%3Fcount2%29%20%20WHERE%20%7B%0A%20%20%20%20INCLUDE%20%25works%0A%20%20%20%20INCLUDE%20%25authors1%0A%20%20%20%20%3Fwork%20wdt%3AP50%20%3Fauthor1%20%2C%20%3Fauthor2%20.%0A%20%20%20%20FILTER%20%28%3Fauthor1%20%21%3D%20%3Fauthor2%29%20%0A%20%20%7D%0A%20%20GROUP%20BY%20%3Fauthor2%20%3Fauthor1%20%0A%20%20ORDER%20BY%20DESC%28%3Fcount2%29%0A%20%20LIMIT%20250%0A%7D%20AS%20%25authors2%0AWHERE%20%7B%0A%23%20%20INCLUDE%20%25authors1%0A%20%20INCLUDE%20%25authors2%0A%20%20OPTIONAL%20%7B%20%3Fauthor1%20wdt%3AP21%20%3Fgender1%20.%20%7D%0A%20%20BIND%28%20IF%28%3Fgender1%20%3D%20wd%3AQ6581097%2C%20%223182BD%22%2C%20%22E6550D%22%29%20AS%20%3Frgb%29%0A%20%20SERVICE%20wikibase%3Alabel%20%7B%0A%20%20%20%20bd%3AserviceParam%20wikibase%3Alanguage%20%22en%2Cfr%2Cde%2Cru%2Ces%2Czh%2Cjp%22.%0A%20%20%7D%0A%7D%0A"></iframe>
 </div>
 
 
@@ -291,6 +404,22 @@ page to resolve the author names.
 <h3 id="Authors cited from works on the topic">Authors cited from works on the topic</h3>
 
 <table class="table table-hover" id="most-cited-authors"></table>
+
+<h3 id="Map-of-organizations">Map of organizations associated with works about the topic</h2>
+
+The colours indicate how many publications on the topic are associated with organizations in the given location, as detailed in the legend (top right).
+
+<div class="embed-responsive embed-responsive-4by3">
+    <iframe 
+        class="embed-responsive-item" 
+        src="https://query.wikidata.org/embed.html#%23defaultView%3AMap%0ASELECT%20%3Forganization%20%3ForganizationLabel%20%3Fgeo%20%3Fcount%20%3Flayer%0AWITH%20%7B%0A%20%20SELECT%20DISTINCT%20%3Fwork%20WHERE%20%7B%0A%20%20%23%20Works%20on%20the%20topic%0A%20%20%20%20%3Fwork%20wdt%3AP921%20%2F%20%28wdt%3AP361%2B%20%7C%20wdt%3AP1269%2B%20%7C%20%28wdt%3AP31%2a%20%2F%20wdt%3AP279%2a%29%20%29%20wd%3A{{ q }}%20.%0A%20%20%7D%0A%20%20LIMIT%2020000%0A%7D%20AS%20%25works%0AWITH%20%7B%0A%20%20SELECT%20DISTINCT%20%3Forganization%20%3Fgeo%20%28COUNT%28DISTINCT%20%3Fwork%29%20AS%20%3Fcount%29%20WHERE%20%7B%0A%20%20%20%20INCLUDE%20%25works%0A%20%20%20%20%23%20Authors%20who%20have%20published%20works%20on%20the%20topic%0A%20%20%20%20%3Fwork%20wdt%3AP50%20%3Fauthor%20.%20%0A%20%20%20%20%3Fauthor%20%28%20wdt%3AP108%20%7C%20wdt%3AP463%20%7C%20wdt%3AP1416%20%29%20%2F%20wdt%3AP361%2a%20%3Forganization%20.%20%0A%20%20%20%20%3Forganization%20wdt%3AP625%20%3Fgeo%20.%0A%20%20%7D%0A%20%20GROUP%20BY%20%3Forganization%20%3Fgeo%0A%20%20ORDER%20BY%20DESC%20%28%3Fcount%29%0A%20%20LIMIT%202000%0A%7D%20AS%20%25organizations%0AWHERE%20%7B%0A%20%20INCLUDE%20%25organizations%0A%20%20BIND%28IF%28%20%28%3Fcount%20%3C%201%29%2C%20%22No%20results%22%2C%20IF%28%28%3Fcount%20%3C%202%29%2C%20%221%20result%22%2C%20IF%28%28%3Fcount%20%3C%2011%29%2C%20%221%20%3C%20results%20%E2%89%A4%2010%22%2C%20IF%28%28%3Fcount%20%3C%20101%29%2C%20%2210%20%3C%20results%20%E2%89%A4%20100%22%2C%20IF%28%28%3Fcount%20%3C%201001%29%2C%20%22100%20%3C%20results%20%E2%89%A4%201000%22%2C%20IF%28%28%3Fcount%20%3C%2010001%29%2C%20%221000%20%3C%20results%20%E2%89%A4%2010000%22%2C%20%2210000%20or%20more%20results%22%29%20%29%20%29%20%29%20%29%29%20AS%20%3Flayer%20%29%0A%20%20SERVICE%20wikibase%3Alabel%20%7B%20bd%3AserviceParam%20wikibase%3Alanguage%20%22%5BAUTO_LANGUAGE%5D%2Cen%22.%20%7D%20%20%20%20%20%20%20%20%0A%20%7D%0AORDER%20BY%20DESC%20%28%3Fcount%29%0A">
+    </iframe>
+</div>
+
+
+<h3 id="Awards received by authors who published on the topic">Awards received by authors who published on the topic</h3>
+
+<table class="table table-hover" id="author-awards"></table>
 
 {% endblock %}
     

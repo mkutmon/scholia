@@ -29,11 +29,14 @@ Semantic relatedness \cite{Q26973018}.
 
 from __future__ import print_function
 
+import os
+from os import write
 from os.path import splitext
 
 import re
+import unicodedata
 
-from six import u
+from six import ensure_text, u
 
 from .api import (
     entity_to_authors, entity_to_classes, entity_to_doi,
@@ -62,32 +65,55 @@ STRING_TO_TEX = {
 }
 
 STRING_TO_TEX_URL = {
-    '{': r'\{',
-    '}': r'\}',
-    '#': r'\#',
-    '&': r'\&',
-    '^': r'\^{}',
-    '%': r'\%',
-    '$': r'\$',
-    '_': r'\_',
+    '{': u(r'\{'),
+    '}': u(r'\}'),
+    '#': u(r'\#'),
+    '&': u(r'\&'),
+    '^': u(r'\^{}'),
+    '%': u(r'\%'),
+    '$': u(r'\$'),
+    '_': u(r'\_'),
+}
+
+COMBINING_DIACRITIC_TO_TEX = {
+    u'\u0300': r'\`',
+    u'\u0301': r"\'",
+    u'\u0302': r'\^',
+    u'\u0303': r'\~',
+    u'\u0304': r'\=',
+    u'\u0308': r'\"',
+    u'\u0327': r'\c',
+    u'\u0331': r'\b',
+    u'\u0306': r'\u',
+    u'\u030C': r'\v',
+    u'\u0307': r'\.',
+    u'\u0323': r'\d',
+    u'\u030A': r'\r',
+    u'\u030B': r'\H',
+    u'\u0328': r'\k'
 }
 
 STRING_TO_TEX_PATTERN = re.compile(
-    u'|'.join(re.escape(key) for key in STRING_TO_TEX),
+    u('|').join(re.escape(key) for key in STRING_TO_TEX),
     flags=re.UNICODE)
 
 STRING_TO_TEX_URL_PATTERN = re.compile(
-    u'|'.join(re.escape(key) for key in STRING_TO_TEX_URL),
+    u('|').join(re.escape(key) for key in STRING_TO_TEX_URL),
+    flags=re.UNICODE)
+
+COMBINING_DIACRITIC_TO_TEX_PATTERN = re.compile(
+    u('(.)({})').format(
+        u'|'.join(re.escape(key)for key in COMBINING_DIACRITIC_TO_TEX)),
     flags=re.UNICODE)
 
 
 def escape_to_tex(string, escape_type='normal'):
-    r"""Escape a text to the a tex/latex safe.
+    r"""Escape a text to a tex/latex safe text.
 
     Parameters
     ----------
     string : str or None
-        Unicode string to be excaped.
+        Unicode string to be escaped.
     escape_type : normal or url, default normal
         Type of escaping.
 
@@ -102,8 +128,9 @@ def escape_to_tex(string, escape_type='normal'):
     >>> escape_to_tex("^^") == r'\^{}\^{}'
     True
 
-    >>> escape_to_tex('10.1007/978-3-319-18111-0_26', 'url')
-    '10.1007/978-3-319-18111-0\\_26'
+    >>> escaped = escape_to_tex('10.1007/978-3-319-18111-0_26', 'url')
+    >>> escaped == '10.1007/978-3-319-18111-0\\_26'
+    True
 
     References
     ----------
@@ -112,7 +139,10 @@ def escape_to_tex(string, escape_type='normal'):
 
     """
     if string is None:
-        return ''
+        return u('')
+
+    string = ensure_text(string)
+
     if escape_type == 'normal':
         escaped_string = STRING_TO_TEX_PATTERN.sub(
             lambda match: STRING_TO_TEX[match.group()], string)
@@ -122,6 +152,12 @@ def escape_to_tex(string, escape_type='normal'):
     else:
         raise ValueError('Wrong value for parameter "escape_type": {}'.format(
             escape_type))
+
+    escaped_string = COMBINING_DIACRITIC_TO_TEX_PATTERN.sub(
+        lambda match: u('{{{} {}}}').format(
+            COMBINING_DIACRITIC_TO_TEX[match.group(2)],
+            match.group(1)),
+        unicodedata.normalize('NFD', escaped_string))
     return escaped_string
 
 
@@ -221,13 +257,17 @@ def extract_qs_from_aux_string(string):
     >>> extract_qs_from_aux_string(string)
     ['Q28042913', 'Q27615040']
 
+    >>> string = "\citation{Q28042913,Q27615040.Q27615040}"
+    >>> extract_qs_from_aux_string(string)
+    ['Q28042913']
+
     """
     matches = re.findall(r'^\\citation{(.+?)}', string,
                          flags=re.MULTILINE | re.UNICODE)
     qs = []
     for submatches in matches:
         for q in submatches.split(','):
-            if re.match(r'Q\d+', q):
+            if re.match(r'^Q\d+$', q):
                 qs.append(q)
 
     return qs
@@ -244,7 +284,7 @@ def authors_to_bibtex_authors(authors):
     Returns
     -------
     entry : str
-        Bibtex entry.
+        Bibtex entry in Unicode string.
 
     """
     bibtex_authors = []
@@ -252,7 +292,7 @@ def authors_to_bibtex_authors(authors):
         if humanness:
             bibtex_authors.append(escape_to_tex(author))
         else:
-            bibtex_authors.append('{' + escape_to_tex(author) + '}')
+            bibtex_authors.append(u('{') + escape_to_tex(author) + '}')
     return bibtex_authors
 
 
@@ -264,18 +304,18 @@ def entity_to_bibtex_entry(entity, key=None):
     entity : dict
         Wikidata entity as hierarchical structure.
     key : str
-        Bibtex key
+        Bibtex key.
 
     Returns
     -------
     entry : str
-        Bibtex entry.
+        Bibtex entry in Unicode string.
 
     """
     if key is None:
-        entry = "@Article{%s,\n" % entity['id']
+        entry = u("@Article{%s,\n") % entity['id']
     else:
-        entry = "@Article{%s,\n" % escape_to_tex(key)
+        entry = u("@Article{%s,\n") % escape_to_tex(key)
     authors = authors_to_bibtex_authors(
         entity_to_authors(entity, return_humanness=True))
     entry += "  author =   {%s},\n" % u" and ".join(authors)
@@ -358,14 +398,16 @@ def main():
 
         entities = wb_get_entities(qs)
 
-        bib = ""
+        bib = u("")
         for q, key in zip(qs, keys):
             entity = entities[q]
             bib += entity_to_bibtex_entry(entity, key=key)
             bib += '\n'
 
-        with open(bib_filename, 'w') as f:
-            f.write(bib.encode('utf-8'))
+        # Write BibTeX-formatted string to file
+        output_file = os.open(bib_filename, os.O_RDWR | os.O_CREAT)
+        output_encoding = "utf-8"
+        write(output_file, bib.encode(output_encoding))
 
 
 if __name__ == '__main__':
